@@ -1,0 +1,27 @@
+[build-system]
+requires = ["setuptools>=61", "versioneer[toml]"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "toksearch_cmf"
+dynamic = ["version"]
+description = "CMF provenance backend for toksearch"
+readme = "README.md"
+license = "Apache-2.0"
+requires-python = ">=3.10"
+# Runtime deps come from recipe/recipe.yaml (ga-fdp/conda-forge conda
+# channels); keep this empty so pip/pixi's pypi resolver doesn't try to fetch
+# toksearch, cmflib, or dvc from PyPI.
+dependencies = []
+
+[tool.setuptools]
+packages = ["toksearch_cmf"]
+zip-safe = false
+
+[tool.versioneer]
+VCS = "git"
+style = "pep440"
+versionfile_source = "toksearch_cmf/_version.py"
+versionfile_build = "toksearch_cmf/_version.py"
+tag_prefix = "release-"
+parentdir_prefix = "toksearch_cmf-"

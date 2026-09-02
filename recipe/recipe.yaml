@@ -1,0 +1,79 @@
+# Copyright 2026 General Atomics
+#
+# Licensed under the Apache License, Version 2.0 (the "License");
+# you may not use this file except in compliance with the License.
+# You may obtain a copy of the License at
+#
+#    http://www.apache.org/licenses/LICENSE-2.0
+#
+# Unless required by applicable law or agreed to in writing, software
+# distributed under the License is distributed on an "AS IS" BASIS,
+# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+# See the License for the specific language governing permissions and
+# limitations under the License.
+
+context:
+  version: ${{ env.get("PKG_VERSION") }}
+
+package:
+  name: toksearch_cmf
+  version: ${{ version }}
+
+source:
+  path: ..
+
+build:
+  script:
+    - ${{ PYTHON }} -m pip install . --no-deps --no-build-isolation -vv
+
+requirements:
+  host:
+    # Bounded here (not left bare like toksearch_mast's `python`) because an
+    # unconstrained host solve picks conda-forge's latest interpreter
+    # (3.14 at the time of writing), and the published toksearch conda builds
+    # (numpy >=1.20,<2) only exist through python 3.12 -- a package built
+    # against a newer interpreter can never install alongside a real
+    # toksearch release. cmflib caps at <3.14 too, but <3.13 is the binding
+    # constraint. ml-metadata 1.21.0 covers 3.10-3.13.
+    - python >=3.10,<3.13
+    - setuptools
+    - pip
+    - versioneer
+  run:
+    - python >=3.10,<3.13
+    # RELEASE COUPLING (not yet resolvable): the provenance module this
+    # package builds on (Signal.spec, RunContext, Provenance, JsonProvenance,
+    # Phases 1-5) lives on toksearch's feat/cmf-provenance branch and has no
+    # released conda version yet. Pin a floor here once that work ships --
+    # until then this run dependency resolves to a toksearch release that
+    # lacks toksearch.provenance, so CmfRun (a later task) cannot be added
+    # without also bumping this floor.
+    - toksearch
+    # cmflib and ml-metadata are ordinary conda packages on ga-fdp as of
+    # 2026-09-02 (GA-FDP/cmf_conda, GA-FDP/mlmd_conda) -- no pip fork, no
+    # editable ../cmf checkout. ml-metadata is pulled in transitively by
+    # cmflib.
+    - cmflib
+    - dvc
+
+tests:
+  - script:
+      content:
+        # Scaffold only -- CmfRun does not exist yet, so this is a trivial
+        # import test, not the full unit suite. Widen this to
+        # `python -m pytest tests/` once CmfRun lands.
+        - python -c "import toksearch_cmf; assert toksearch_cmf.__version__"
+    files:
+      source:
+        - tests/
+    requirements:
+      run:
+        - pytest
+
+about:
+  license: Apache-2.0
+  summary: "CMF provenance backend for toksearch"
+
+extra:
+  recipe-maintainers:
+    - sammuli
