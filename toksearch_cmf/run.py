@@ -24,6 +24,7 @@ pool would be dead.
 import os
 import subprocess
 import uuid
+import warnings
 from typing import Optional, Sequence
 
 from toksearch.provenance.base import Provenance
@@ -155,10 +156,13 @@ class CmfRun(Provenance):
             os.path.join(self.work_dir, "cmf_runs", self.run_id),
             archive_version=self.archive_version,
         )
-        cmf.log_dataset(inputs_path, "INPUT")
+        # _dvc_path on every log_dataset call, not just outputs: a file
+        # survives cmflib's wrong branch by accident where a directory does
+        # not, and depending on that accident is how the output bug hid.
+        cmf.log_dataset(_dvc_path(inputs_path, self.work_dir), "INPUT")
 
         for path in self.declared_inputs:
-            cmf.log_dataset(path, "INPUT")
+            cmf.log_dataset(_dvc_path(path, self.work_dir), "INPUT")
 
     def on_compute_end(self, ctx, recordset) -> None:
         cmf = self._ensure_cmf()
@@ -167,14 +171,15 @@ class CmfRun(Provenance):
         # iterate, unavoidably (it counts per-shot failures), which is why it
         # is called last: by then the results are needed anyway.
         for directory in ctx.write_directories():
-            cmf.log_dataset(directory, "OUTPUT")
+            cmf.log_dataset(_dvc_path(directory, self.work_dir), "OUTPUT")
         cmf.log_execution_metrics("record_outcomes", record_outcomes(recordset))
 
     def output(self, *paths, **custom_properties) -> None:
         cmf = self._ensure_cmf()
         for path in paths:
             cmf.log_dataset(
-                str(path), "OUTPUT", custom_properties=dict(custom_properties)
+                _dvc_path(path, self.work_dir), "OUTPUT",
+                custom_properties=dict(custom_properties),
             )
 
     def metrics(self, name: str, values: dict) -> None:
@@ -183,6 +188,54 @@ class CmfRun(Provenance):
     def finalize(self) -> None:
         if self._cmf is not None:
             self._cmf.finalize()
+
+
+def _dvc_path(path, root: str) -> str:
+    """Return a path cmflib can actually hand to DVC.
+
+    cmflib's ``commit_output`` decides whether an artifact is already in the
+    workspace with ``os.path.exists(os.getcwd() + '/' + folder)``
+    (``cmflib/dvc_wrapper.py:297``) -- string concatenation, not
+    ``os.path.join``. For an **absolute** path that builds ``/cwd//abs/path``,
+    which never exists, so cmflib takes its ``dvc import-url --to-remote``
+    branch instead of ``dvc add``. DVC then refuses a directory that is already
+    in the workspace, cmflib swallows the exception, and **the artifact is
+    silently not logged**.
+
+    ``Pipeline.write`` stores an absolute directory (``_SafeWrite.__init__``
+    calls ``os.path.abspath``), so every output directory hits this. Files
+    happen to survive it -- the ``import-url`` branch succeeds for a path that
+    does not exist relative to cwd -- which is why the failure shows up only
+    for directories and is easy to miss.
+
+    Passing the cwd-relative form takes cmflib down the ``dvc add`` branch,
+    which is what it wanted all along, and yields a proper directory hash.
+    Relative names are also more portable in the recorded metadata.
+
+    The anchor is ``work_dir``, not ``os.getcwd()``. cmflib chdirs to
+    ``cmf_init_path`` inside ``log_dataset`` and restores afterwards
+    (``cmf.py:743``, ``cmf.py:881``), and ``cmf_init_path`` is derived from the
+    ``filepath`` we pass -- ``work_dir/mlmd`` -- so it *is* ``work_dir``. Using
+    cwd happens to work whenever the caller runs from ``work_dir`` and breaks
+    silently otherwise.
+
+    A path outside that root cannot be DVC-tracked from this repository at all,
+    so it is returned unchanged with a warning rather than silently mangled.
+    """
+    text = str(path)
+    root = os.path.abspath(root)
+    if os.path.commonpath([os.path.abspath(text), root]) == root:
+        return os.path.relpath(text, root)
+
+    warnings.warn(
+        f"Provenance artifact {text!r} is outside {root!r}, the directory "
+        f"cmflib resolves DVC paths against, so DVC cannot track it and CMF "
+        f"will not record its hash. Write outputs inside the repository to "
+        f"have them recorded.",
+        RuntimeWarning,
+        stacklevel=3,
+    )
+    return text
 
 
 def record_outcomes(recordset) -> dict:

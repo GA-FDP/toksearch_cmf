@@ -140,12 +140,14 @@ class TestCmfRunRecording(unittest.TestCase):
             self.assertEqual(args[1], "INPUT")
 
     def test_start_writes_a_real_inputs_file(self):
+        # The logged path is relative to work_dir, which is what cmflib
+        # resolves against -- so resolve it the same way to check existence.
         with tempfile.TemporaryDirectory() as d:
             _git_repo(d)
             run = self._run(d)
             run.on_compute_start(_ctx())
             args, _ = run._cmf.log_dataset.call_args
-            self.assertTrue(os.path.exists(args[0]))
+            self.assertTrue(os.path.exists(os.path.join(d, args[0])))
 
     def test_execution_properties_carry_the_input_identity(self):
         with tempfile.TemporaryDirectory() as d:
@@ -185,7 +187,7 @@ class TestCmfRunRecording(unittest.TestCase):
             run = self._run(d, inputs=[prior])
             run.on_compute_start(_ctx())
             logged = [(c.args[0], c.args[1]) for c in run._cmf.log_dataset.call_args_list]
-            self.assertIn((prior, "INPUT"), logged)
+            self.assertIn(("peaks.nc", "INPUT"), logged)
 
     def test_declared_output_is_logged(self):
         with tempfile.TemporaryDirectory() as d:
@@ -224,7 +226,8 @@ class TestCmfRunRecording(unittest.TestCase):
             run._cmf.reset_mock()
             run.on_compute_end(ctx_w, None)
             logged = [(c.args[0], c.args[1]) for c in run._cmf.log_dataset.call_args_list]
-            self.assertIn((out, "OUTPUT"), logged)
+            # Relative to work_dir, not the absolute path _SafeWrite stored.
+            self.assertIn(("peaks", "OUTPUT"), logged)
 
     def test_end_does_not_iterate_the_recordset_for_paths(self):
         # Passing None as the recordset proves output directories came from the
@@ -290,3 +293,66 @@ class TestCmfRunRecording(unittest.TestCase):
         with tempfile.TemporaryDirectory() as d:
             _git_repo(d)
             CmfRun("study", work_dir=d).finalize()  # must not raise
+
+
+class TestDvcPathRelativization(unittest.TestCase):
+    """cmflib's commit_output checks `os.getcwd() + '/' + folder`
+    (dvc_wrapper.py:297) -- string concatenation, not os.path.join. An
+    absolute path builds '/cwd//abs/path', which never exists, so cmflib takes
+    its `dvc import-url` branch instead of `dvc add`. DVC refuses a directory
+    already in the workspace, cmflib swallows the error, and the artifact is
+    silently not logged.
+
+    Pipeline.write always stores an absolute directory, so every output hit
+    this. Verified against real cmflib: before the fix a run recorded 3
+    artifacts with no output directory; after it, 4, the output appearing as
+    `peaks:<md5>.dir`.
+    """
+
+    def test_a_path_under_the_root_is_made_relative(self):
+        from toksearch_cmf.run import _dvc_path
+
+        self.assertEqual(_dvc_path("/a/b/peaks", "/a/b"), "peaks")
+
+    def test_a_nested_path_is_made_relative(self):
+        from toksearch_cmf.run import _dvc_path
+
+        self.assertEqual(_dvc_path("/a/b/out/peaks", "/a/b"),
+                         os.path.join("out", "peaks"))
+
+    def test_a_path_outside_the_root_warns_rather_than_mangling(self):
+        import warnings
+
+        from toksearch_cmf.run import _dvc_path
+
+        with warnings.catch_warnings(record=True) as caught:
+            warnings.simplefilter("always")
+            result = _dvc_path("/somewhere/else/peaks", "/a/b")
+        self.assertEqual(result, "/somewhere/else/peaks")
+        self.assertEqual(len(caught), 1)
+        self.assertIn("DVC cannot track", str(caught[0].message))
+
+    def test_the_anchor_is_work_dir_not_cwd(self):
+        """cmflib chdirs to cmf_init_path (= work_dir) inside log_dataset, so
+        relativizing against cwd is only right when the caller happens to be
+        running from work_dir. Run from elsewhere and cwd-anchoring breaks."""
+        from toksearch.provenance.context import OpSpec
+
+        with tempfile.TemporaryDirectory() as d:
+            _git_repo(d)
+            out = os.path.join(d, "peaks")
+            os.makedirs(out)
+            run = CmfRun("study", work_dir=d)   # cwd is the repo, not d
+            run._cmf = mock.MagicMock()
+            ctx = _ctx()
+            ctx_w = type(ctx)(
+                source=ctx.source,
+                ops=ctx.ops + (OpSpec("write", {"directory": out,
+                                                "track": "directory"}),),
+                signals=ctx.signals, backend=ctx.backend, code=ctx.code,
+            )
+            run.on_compute_start(ctx_w)
+            run.on_compute_end(ctx_w, None)
+            for call in run._cmf.log_dataset.call_args_list:
+                self.assertFalse(os.path.isabs(call.args[0]),
+                                 f"absolute path reached cmflib: {call.args[0]}")
