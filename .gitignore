@@ -6,3 +6,7 @@ build
 **/old_stuff/
 envs
 .pixi
+
+# local probe environments
+.demo/
+.probe*/
