@@ -15,10 +15,6 @@ import unittest
 
 
 class TestPackage(unittest.TestCase):
-    """Scaffold only. CmfRun arrives in a later task, and its export and
-    Provenance-subclass tests come with it -- asserting them here would commit
-    a package whose import raises."""
-
     def test_imports(self):
         import toksearch_cmf  # noqa: F401
 
@@ -40,3 +36,12 @@ class TestPackage(unittest.TestCase):
 
     def test_cmflib_resolves_from_conda(self):
         import cmflib  # noqa: F401
+
+    def test_exports_cmf_run(self):
+        from toksearch_cmf import CmfRun  # noqa: F401
+
+    def test_cmf_run_is_a_provenance_backend(self):
+        from toksearch.provenance import Provenance
+        from toksearch_cmf import CmfRun
+
+        self.assertTrue(issubclass(CmfRun, Provenance))

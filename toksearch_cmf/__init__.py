@@ -26,10 +26,10 @@ Usage::
     )
 """
 
+from .run import CmfRun
 from ._version import get_versions
 
 __version__ = get_versions()["version"]
 del get_versions
 
-# CmfRun is exported by a later task, together with the module that defines it.
-__all__ = []
+__all__ = ["CmfRun"]
