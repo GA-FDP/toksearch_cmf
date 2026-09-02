@@ -139,3 +139,36 @@ class TestWriteInputsFile(unittest.TestCase):
             sha256_of({k: payload[k] for k in ("source", "signals", "device")}),
             ctx.input_identity(),
         )
+
+
+class TestArchiveVersionIsOutsideTheIdentity(unittest.TestCase):
+    """archive_version deliberately sits in the file but not the identity.
+
+    input_identity() answers "which shots, which signals"; the file's content
+    answers "which exact bytes". They coincide only while archive_version is
+    constant. Pinning the asymmetry so nobody collapses the two later.
+    """
+
+    def test_archive_version_changes_the_file(self):
+        ctx = _ctx()
+        with tempfile.TemporaryDirectory() as a, tempfile.TemporaryDirectory() as b:
+            with open(write_inputs_file(ctx, a, archive_version="unversioned"), "rb") as fh:
+                first = fh.read()
+            with open(write_inputs_file(ctx, b, archive_version="md5:abc.dir"), "rb") as fh:
+                second = fh.read()
+        self.assertNotEqual(first, second)
+
+    def test_archive_version_does_not_change_input_identity(self):
+        # RunContext knows nothing about archives, by design.
+        ctx = _ctx()
+        before = ctx.input_identity()
+        with tempfile.TemporaryDirectory() as d:
+            write_inputs_file(ctx, d, archive_version="md5:abc.dir")
+        self.assertEqual(ctx.input_identity(), before)
+
+    def test_archive_version_is_not_in_the_identity_fields(self):
+        from toksearch_cmf.inputs import inputs_payload
+
+        payload = inputs_payload(_ctx(), archive_version="md5:abc.dir")
+        self.assertIn("archive_version", payload)
+        self.assertNotIn("archive_version", ("source", "signals", "device"))

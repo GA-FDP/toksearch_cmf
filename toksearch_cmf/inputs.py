@@ -33,6 +33,22 @@ INPUTS_FILENAME = "inputs.json"
 #: Placeholder until the origin per-shot versioned store exists. Once it does,
 #: this carries the DVC directory hashes of the exact archive state that was
 #: read, and the input artifact becomes content-addressed all the way down.
+#:
+#: NOTE the deliberate asymmetry: ``archive_version`` is written into the file
+#: but is NOT part of ``RunContext.input_identity()``, which toksearch computes
+#: from source + signals + device alone and knows nothing about archives. The
+#: two therefore answer different questions:
+#:
+#:   input_identity()      "which shots, which signals"  -- logical input
+#:   inputs.json content   "which exact bytes"           -- physical input
+#:
+#: While archive_version is constant they coincide. Once the versioned store
+#: fills it in they will not, and that is correct: two runs over the same shots
+#: against different archive states are the same logical input and different
+#: physical inputs. CMF dedupes on the file, so it sees the stronger notion.
+#: Do not "fix" this by folding archive_version into input_identity -- that
+#: would require RunContext to know about archives, which is exactly the
+#: coupling the toksearch/toksearch_cmf split exists to avoid.
 UNVERSIONED = "unversioned"
 
 
