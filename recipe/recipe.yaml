@@ -23,6 +23,15 @@ source:
   path: ..
 
 build:
+  # Pure Python -- no extension modules, nothing compiled (see toksearch_cmf/:
+  # __init__.py, inputs.py, run.py). Without this, rattler-build produced a
+  # single python-version-specific package: build string `hb0f4dca_0`, which
+  # does not even advertise a python version, yet pinning
+  # `python_abi 3.12.* *_cp312`. That is uninstallable in the fdp-core
+  # environment, which pins python 3.11, so this package could not join the
+  # metapackage at all. noarch gives one build that works on every python in
+  # the `python >=3.10,<3.13` run constraint below.
+  noarch: python
   script:
     - ${{ PYTHON }} -m pip install . --no-deps --no-build-isolation -vv
 
