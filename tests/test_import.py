@@ -23,13 +23,32 @@ class TestPackage(unittest.TestCase):
 
         self.assertTrue(toksearch_cmf.__version__)
 
-    def test_toksearch_comes_from_the_local_checkout(self):
-        # The released conda toksearch has no provenance module. If this
-        # resolves inside .pixi/envs, the environment is wrong and every later
-        # task in this phase would be building against the wrong toksearch.
+    def test_toksearch_comes_from_a_resolved_package(self):
+        # Inverted on 2026-09-03. This used to assert the opposite -- that
+        # toksearch came from an editable ../toksearch sibling -- because no
+        # *released* toksearch carried the provenance module this package
+        # builds on. toksearch 2.11.0 ships it, so the sibling checkout is
+        # gone and toksearch is an ordinary resolved dependency.
+        #
+        # Asserted via site-packages rather than a specific prefix so this
+        # holds in both the pixi dev environment and the conda recipe test
+        # environment. An editable install pointing at a sibling working tree
+        # would not satisfy it, which is the thing worth catching: it would
+        # silently test code that is not what the package depends on.
+        import os
+
         import toksearch
 
-        self.assertNotIn(".pixi/envs", toksearch.__file__)
+        self.assertIn("site-packages", toksearch.__file__)
+        self.assertFalse(
+            os.path.realpath(toksearch.__file__).startswith(
+                os.path.realpath(os.path.join(os.path.dirname(__file__), "..", ".."))
+                + os.sep
+                + "toksearch"
+                + os.sep
+            ),
+            f"toksearch resolved to a sibling checkout: {toksearch.__file__}",
+        )
 
     def test_the_provenance_contract_is_importable(self):
         from toksearch.provenance import Provenance, RunContext  # noqa: F401

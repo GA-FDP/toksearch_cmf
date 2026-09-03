@@ -6,23 +6,15 @@ platforms = ["linux-64"]
 [dependencies]
 # No Python pin here (unlike toksearch_mast's ">=3.11,<3.13"): ml-metadata
 # 1.21.0 covers CPython 3.10-3.13, so nothing about this package needs one.
-# The effective floor still narrows to 3.10-3.12 via mdsplus-xrdcl and
-# numpy <2 below, both inherited because toksearch is taken from the local
-# checkout rather than resolved as a conda package.
+# The effective floor comes from toksearch's own dependencies.
 python = "*"
-# toksearch is installed editable from ../toksearch (see [pypi-dependencies]
-# below), not as a conda package, so its conda run-dependencies are not
-# pulled in transitively -- they must be listed here so `import toksearch`
-# actually works against the local checkout. Mirrors toksearch/pixi.toml.
-mdsplus-xrdcl = ">=1,<2"
-mdsip-fdp = ">=0.1.0"
-fdp-schema = ">=0.1.1"
-numpy = ">=1.20,<2"
-xarray = "*"
-zarr = "3.*"
-fsspec = "*"
-joblib = ">=1.3"
-openblas = "*"
+# toksearch 2.11.0 is the first release carrying `toksearch.provenance`, which
+# is the entire contract this package builds on: RunContext, the Provenance
+# ABC, Signal.spec(), and `provenance=` on compute_*. Anything older resolves
+# to a toksearch without that module and fails the moment CmfRun touches a
+# RunContext. Taken as a conda package now, so its run-dependencies arrive
+# transitively and need no mirroring here.
+toksearch = ">=2.11.0"
 # cmflib and ml-metadata are conda packages on ga-fdp as of 2026-09-02
 # (GA-FDP/cmf_conda, GA-FDP/mlmd_conda). No pip fork, no editable ../cmf, and
 # no Python pin: ml-metadata 1.21.0 covers CPython 3.10-3.13, cmflib is noarch.
@@ -35,7 +27,3 @@ versioneer = "*"
 
 [pypi-dependencies]
 toksearch_cmf = { path = ".", editable = true }
-# toksearch MUST come from the local checkout, not conda. The ga-fdp channel's
-# toksearch has no provenance module; resolving it from there would silently
-# give a release built against none of this work.
-toksearch = { path = "../toksearch", editable = true }

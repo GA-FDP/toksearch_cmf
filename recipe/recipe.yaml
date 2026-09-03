@@ -41,14 +41,13 @@ requirements:
     - versioneer
   run:
     - python >=3.10,<3.13
-    # RELEASE COUPLING (not yet resolvable): the provenance module this
-    # package builds on (Signal.spec, RunContext, Provenance, JsonProvenance,
-    # Phases 1-5) lives on toksearch's feat/cmf-provenance branch and has no
-    # released conda version yet. Pin a floor here once that work ships --
-    # until then this run dependency resolves to a toksearch release that
-    # lacks toksearch.provenance, so CmfRun (a later task) cannot be added
-    # without also bumping this floor.
-    - toksearch
+    # FLOOR IS LOAD-BEARING: toksearch 2.11.0 is the first release carrying
+    # `toksearch.provenance` -- RunContext, the Provenance ABC, Signal.spec()
+    # and `provenance=` on compute_*. That module is the entire contract this
+    # package implements against, so anything older resolves to a toksearch
+    # without it and CmfRun fails the moment it touches a RunContext. The
+    # import test below is the guard.
+    - toksearch >=2.11.0
     # cmflib and ml-metadata are ordinary conda packages on ga-fdp as of
     # 2026-09-02 (GA-FDP/cmf_conda, GA-FDP/mlmd_conda) -- no pip fork, no
     # editable ../cmf checkout. ml-metadata is pulled in transitively by
@@ -59,10 +58,21 @@ requirements:
 tests:
   - script:
       content:
-        # Scaffold only -- CmfRun does not exist yet, so this is a trivial
-        # import test, not the full unit suite. Widen this to
-        # `python -m pytest tests/` once CmfRun lands.
         - python -c "import toksearch_cmf; assert toksearch_cmf.__version__"
+        # Guard the toksearch floor above. A toksearch without
+        # `toksearch.provenance` satisfies a bare dependency but breaks
+        # CmfRun at runtime, so assert the contract we actually build on
+        # rather than mere importability.
+        - |
+          python -c "
+          from toksearch.provenance import RunContext, Provenance
+          from toksearch_cmf import CmfRun
+          assert issubclass(CmfRun, Provenance)
+          print('OK: toksearch.provenance present and CmfRun implements it')
+          "
+        # The unit suite. The integration test needs a real cmflib+dvc repo
+        # and is deselected here; it runs in the dev environment.
+        - python -m pytest tests/ -v --deselect tests/test_cmf_run_integration.py
     files:
       source:
         - tests/
