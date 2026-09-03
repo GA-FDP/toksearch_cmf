@@ -54,14 +54,14 @@ jobs:
           else
             LABEL="main"
           fi
+          # `*/` not `linux-64/`: this package is noarch: python, so
+          # rattler-build writes it to outdir/noarch/. The hardcoded linux-64
+          # path failed the 0.1.1 tag build with "an io error occurred: No
+          # such file or directory" -- the build succeeded and then had
+          # nothing to upload.
           rattler-build upload anaconda \
             --owner ga-fdp \
             --channel "$LABEL" \
             --api-key ${{ secrets.ANACONDA_API_TOKEN }} \
             --force \
-            # `*/` not `linux-64/`: this package is noarch: python, so
-            # rattler-build writes it to outdir/noarch/. The hardcoded
-            # linux-64 path failed the 0.1.1 tag build with "an io error
-            # occurred: No such file or directory" -- the build succeeded and
-            # then had nothing to upload.
             ${HOME}/outdir/*/*.conda
