@@ -18,10 +18,11 @@ repository, with the script committed there.
 
     python -m fdp run python betan_ip_peaks_cmf.py
 
-`python -m fdp`, not `fdp run`: graphviz installs its layout engine at the same
-bin/fdp path, so in any environment carrying cmflib (cmflib -> dvc -> pydot ->
-graphviz) `fdp run` may invoke a graph layout tool instead. See
-docs/2026-09-02-fdp-cli-rename.md.
+`python -m fdp`, not `fdp run`: in any environment carrying cmflib, graphviz
+arrives transitively (cmflib -> dvc -> pydot -> graphviz) and can install its
+own layout engine at the same bin/fdp path. `fdp` 0.6.0 fixed this for normal
+installs; see this package's README (Prerequisites) for the current status
+and residual exposures.
 
 Writes one netCDF file per shot under ./peaks/ and records the run in local
 mlmd. Read the results back with:
