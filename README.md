@@ -35,9 +35,11 @@ lose the collision: an `fdp` older than 0.6.0, or an installer whose link order
 isn't guaranteed the way those two are. `python -m fdp` sidesteps the question
 either way.
 
-This section is kept deliberately in sync with the equivalent passage in
+The technical claims here — the git+DVC requirement, and the graphviz story
+with its two residual exposures — are kept deliberately in sync with
 `toksearch`'s [Recording to CMF](https://ga-fdp.github.io/toksearch/latest/provenance/#recording-to-cmf)
-prerequisites; if you change one, change the other.
+prerequisites. The prose differs where local context demands it, so compare
+the claims, not the wording; if you change a claim, change it in both.
 
 ## Use
 
