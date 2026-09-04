@@ -19,6 +19,22 @@ created with `fdp-install` already has it. Standalone:
 conda install -c ga-fdp -c conda-forge toksearch_cmf
 ```
 
+## Prerequisites
+
+cmflib records the executing script's commit and hands output paths to DVC. The
+script must therefore run from inside a git repository that has a remote and
+DVC initialised, with the script itself committed there. `CmfRun` checks for
+the repository up front rather than failing after a long compute.
+
+Run it as `python -m fdp run python your_script.py`. In any environment carrying
+cmflib, graphviz arrives transitively (`cmflib → dvc → pydot → graphviz`) and
+installs its own layout engine at `bin/fdp`; `fdp` 0.6.0 declared graphviz as a
+dependency so the installer's link order gives the FDP CLI the file back
+(verified on pixi/rattler and micromamba 2.9.0). That still leaves two ways to
+lose the collision: an `fdp` older than 0.6.0, or an installer whose link order
+isn't guaranteed the way those two are. `python -m fdp` sidesteps the question
+either way.
+
 ## Use
 
 ```python
@@ -26,7 +42,7 @@ from toksearch_cmf import CmfRun
 
 run = CmfRun("betan-ip-study", stage="assemble", work_dir=".")
 
-results = pipeline.compute_multiprocessing(num_workers=16, provenance=run)
+results = pipeline.compute_multiprocessing(num_workers=8, provenance=run)
 
 run.metrics("coverage", {"requested": len(shots), "returned": len(results)})
 run.finalize()
@@ -36,18 +52,6 @@ Nothing there hand-writes a `cmflib.log_dataset` call. toksearch derives the
 run description; `CmfRun` records it. Output directories declared with
 `Pipeline.write` are picked up automatically; use `run.output(path, ...)` for
 artifacts toksearch did not write itself.
-
-## Prerequisites
-
-cmflib records the executing script's commit and hands output paths to DVC. The
-script must therefore run from inside a git repository that has a remote and an
-initialised DVC, with the script itself committed there. `CmfRun` checks for the
-repository up front rather than failing after a long compute.
-
-Run it as `python -m fdp run python your_script.py`. In any environment carrying
-cmflib, graphviz arrives transitively (`cmflib → dvc → pydot → graphviz`) and
-installs its own layout engine at `bin/fdp`; `fdp` 0.6.0 fixed the link order so
-the FDP CLI keeps the file, but `python -m fdp` is unambiguous regardless.
 
 ## Example
 
