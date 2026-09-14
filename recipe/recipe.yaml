@@ -68,6 +68,19 @@ requirements:
     # cmflib.
     - cmflib
     - dvc
+  run_constraints:
+    # NOT a run dependency. ptdata is optional here by design -- a device
+    # with no versioned store (MAST) records provenance perfectly well
+    # without it, and making it hard would drag a DIII-D data library into
+    # every MAST install.
+    #
+    # But when it IS present it has to be new enough, because the failure is
+    # silent: `from ptdata import build_snapshot` raises ImportError on
+    # anything older, snapshot.py degrades to the UNVERSIONED placeholder,
+    # and every run then records having read nothing versioned when it did.
+    # A constraint says "if you have it, this version" without requiring it,
+    # which is exactly the shape of this dependency.
+    - ptdata >=2.10.0
 
 tests:
   - script:
