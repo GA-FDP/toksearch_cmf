@@ -172,3 +172,134 @@ class TestArchiveVersionIsOutsideTheIdentity(unittest.TestCase):
         payload = inputs_payload(_ctx(), archive_version="md5:abc.dir")
         self.assertIn("archive_version", payload)
         self.assertNotIn("archive_version", ("source", "signals", "device"))
+
+
+# ---------------------------------------------------------------------
+# B7b: archive_version stops being a placeholder.
+#
+# This module's own docstring has said since it was written that the field
+# "carries the DVC directory hashes of the exact archive state that was
+# read, and the input artifact becomes content-addressed all the way down"
+# once the versioned store exists. It exists. This is that.
+# ---------------------------------------------------------------------
+
+import json as _json
+import unittest as _unittest
+from unittest import mock as _mock
+
+from toksearch_cmf.inputs import UNVERSIONED, inputs_payload
+from toksearch_cmf.snapshot import shards_for, snapshot_for_run
+
+
+def _snapshot_ctx(catalog="catalog_20260907T232802Z", shots=(165920, 165921),
+         signals=None):
+    return _mock.Mock(
+        source=_mock.Mock(to_dict=lambda: {"kind": "shotlist", "count": 2}),
+        signals=signals if signals is not None else {
+            "ip": {"class": "MdsSignal", "module": "toksearch.signal.mds",
+                   "fields": {"treename": "efit01"}},
+        },
+        device="d3d",
+        store={"catalog": catalog} if catalog else None,
+        shots=shots,
+    )
+
+
+def _fake_shard_key(tree, shot):
+    """Stands in for toksearch's shard_key.
+
+    Patched rather than imported because this package's environment may hold
+    a toksearch older than 2.14.0, where `store_path` does not exist. What is
+    under test here is THIS module's use of the mapping -- dedup, span
+    coverage, sorting -- not the mapping itself, which is toksearch's and is
+    tested there.
+    """
+    return "%s-%d" % (tree, shot // 1_000_000)
+
+
+class TestWhichShardsARunNeeds(_unittest.TestCase):
+    """The tree->shard mapping is the caller's, and ptdata takes shard names.
+    A tree crossing a million-shot boundary occupies TWO shards."""
+
+    def setUp(self):
+        patcher = _mock.patch("toksearch_cmf.snapshot.shard_key",
+                              _fake_shard_key)
+        patcher.start()
+        self.addCleanup(patcher.stop)
+
+    def test_one_tree_one_span_is_one_shard(self):
+        self.assertEqual(shards_for(_snapshot_ctx()), ["efit01-0"])
+
+    def test_one_tree_across_a_boundary_is_two_shards(self):
+        self.assertEqual(shards_for(_snapshot_ctx(shots=(165920, 1165920))),
+                         ["efit01-0", "efit01-1"])
+
+    def test_several_trees_are_deduplicated_and_sorted(self):
+        ctx = _snapshot_ctx(signals={
+            "a": {"class": "MdsSignal", "fields": {"treename": "efit01"}},
+            "b": {"class": "MdsSignal", "fields": {"treename": "bci"}},
+            "c": {"class": "MdsSignal", "fields": {"treename": "efit01"}},
+        })
+        self.assertEqual(shards_for(ctx), ["bci-0", "efit01-0"])
+
+    def test_signals_with_no_tree_contribute_nothing(self):
+        ctx = _snapshot_ctx(signals={"p": {"class": "PtDataSignal", "fields": {}}})
+        self.assertEqual(shards_for(ctx), [])
+
+
+class TestTheSnapshotReachesInputsJson(_unittest.TestCase):
+    def test_archive_version_holds_the_snapshot(self):
+        snap = {"schema": "fdp-snapshot/1", "catalog": "catalog_X",
+                "shots": [{"shot": 165920, "version": 2, "dir_hash": "a" * 32}],
+                "shared": []}
+        payload = inputs_payload(_snapshot_ctx(), archive_version=snap)
+        self.assertEqual(payload["archive_version"]["catalog"], "catalog_X")
+
+    def test_a_run_with_no_store_keeps_the_placeholder(self):
+        # MAST reads no store. The placeholder must survive rather than
+        # become an empty snapshot, which would read as "nothing was read".
+        with _mock.patch("toksearch_cmf.snapshot.build_snapshot") as build:
+            got = snapshot_for_run(_snapshot_ctx(catalog=None), store_root="")
+        self.assertEqual(got, UNVERSIONED)
+        build.assert_not_called()
+
+    def test_two_catalogs_give_different_inputs_bytes(self):
+        # Rule 8: the PHYSICAL identity. Same shots, same signals, different
+        # catalog -- different bytes, so CMF sees different input artifacts.
+        from toksearch.provenance.hashing import canonical_json
+        a = canonical_json(inputs_payload(_snapshot_ctx(), archive_version={"catalog": "A"}))
+        b = canonical_json(inputs_payload(_snapshot_ctx(), archive_version={"catalog": "B"}))
+        self.assertNotEqual(a, b)
+
+    def test_a_failure_to_build_degrades_to_the_placeholder(self):
+        # Provenance must never take down the run it is recording.
+        with _mock.patch("toksearch_cmf.snapshot.build_snapshot",
+                         side_effect=RuntimeError("origin down")):
+            self.assertEqual(snapshot_for_run(_snapshot_ctx(), store_root="/r"),
+                             UNVERSIONED)
+
+
+class TestItDegradesRatherThanCrashes(_unittest.TestCase):
+    """Provenance must never take down the run it is recording.
+
+    The package floor requires a toksearch carrying RunContext.store and
+    .shots. This covers the install the solver was supposed to prevent --
+    which is this project's recurring failure, not a hypothetical.
+    """
+
+    def test_a_run_context_without_store_records_unversioned(self):
+        class OldContext:            # pre-B7a: no `store`, no `shots`
+            signals = {}
+        self.assertEqual(snapshot_for_run(OldContext(), store_root="/r"),
+                         UNVERSIONED)
+
+    def test_shards_for_survives_a_context_without_shots(self):
+        class OldContext:
+            signals = {"ip": {"fields": {"treename": "efit01"}}}
+        self.assertEqual(shards_for(OldContext()), [])
+
+    def test_no_ptdata_records_unversioned(self):
+        with _mock.patch("toksearch_cmf.snapshot.build_snapshot", None):
+            self.assertEqual(
+                snapshot_for_run(_snapshot_ctx(), store_root="/r"),
+                UNVERSIONED)
