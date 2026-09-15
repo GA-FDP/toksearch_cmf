@@ -14,9 +14,11 @@ python = "*"
 # to a toksearch without that module and fails the moment CmfRun touches a
 # RunContext. Taken as a conda package now, so its run-dependencies arrive
 # transitively and need no mirroring here.
-# The dev env floor stays low so it solves against what is published today.
-# The PACKAGE floor is >=2.17.0 (recipe/recipe.yaml) -- see the note there.
-toksearch = ">=2.11.0"
+# B7b: raised to match the PACKAGE floor now that 2.17.0 is published.
+# These two drifting apart is how a dev env passes tests against a toksearch
+# the shipped package would refuse -- snapshot_for_run needs RunContext.shots,
+# and below 2.17.0 it degrades silently to "unversioned" rather than failing.
+toksearch = ">=2.17.0"
 # cmflib and ml-metadata are conda packages on ga-fdp as of 2026-09-02
 # (GA-FDP/cmf_conda, GA-FDP/mlmd_conda). No pip fork, no editable ../cmf, and
 # no Python pin: ml-metadata 1.21.0 covers CPython 3.10-3.13, cmflib is noarch.
