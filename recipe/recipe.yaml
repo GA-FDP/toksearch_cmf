@@ -56,13 +56,31 @@ requirements:
     # package implements against, so anything older resolves to a toksearch
     # without it and CmfRun fails the moment it touches a RunContext. The
     # import test below is the guard.
-    - toksearch >=2.11.0
+    # B7b: snapshot_for_run needs RunContext.shots and .store, and
+    # shards_for needs toksearch.signal.store_path.shard_key. Below
+    # this the snapshot silently degrades to "unversioned" -- a run
+    # that records having read nothing versioned when it did, which
+    # is the one failure a provenance layer must not have.
+    - toksearch >=2.17.0
     # cmflib and ml-metadata are ordinary conda packages on ga-fdp as of
     # 2026-09-02 (GA-FDP/cmf_conda, GA-FDP/mlmd_conda) -- no pip fork, no
     # editable ../cmf checkout. ml-metadata is pulled in transitively by
     # cmflib.
     - cmflib
     - dvc
+  run_constraints:
+    # NOT a run dependency. ptdata is optional here by design -- a device
+    # with no versioned store (MAST) records provenance perfectly well
+    # without it, and making it hard would drag a DIII-D data library into
+    # every MAST install.
+    #
+    # But when it IS present it has to be new enough, because the failure is
+    # silent: `from ptdata import build_snapshot` raises ImportError on
+    # anything older, snapshot.py degrades to the UNVERSIONED placeholder,
+    # and every run then records having read nothing versioned when it did.
+    # A constraint says "if you have it, this version" without requiring it,
+    # which is exactly the shape of this dependency.
+    - ptdata >=2.10.0
 
 tests:
   - script:

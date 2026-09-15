@@ -29,6 +29,7 @@ from typing import Optional, Sequence
 
 from toksearch.provenance.base import Provenance
 
+from .snapshot import snapshot_for_run
 from .inputs import UNVERSIONED, write_inputs_file
 
 
@@ -151,10 +152,18 @@ class CmfRun(Provenance):
             custom_properties=self._flatten(ctx),
         )
 
+        # The placeholder becomes a saved snapshot when the run read a
+        # versioned store: the exact version of every shot and shard, with
+        # the hashes that let a third party check them. An explicit
+        # archive_version= from the caller still wins.
+        archive_version = self.archive_version
+        if archive_version == UNVERSIONED:
+            archive_version = snapshot_for_run(ctx)
+
         inputs_path = write_inputs_file(
             ctx,
             os.path.join(self.work_dir, "cmf_runs", self.run_id),
-            archive_version=self.archive_version,
+            archive_version=archive_version,
         )
         # _dvc_path on every log_dataset call, not just outputs: a file
         # survives cmflib's wrong branch by accident where a directory does
