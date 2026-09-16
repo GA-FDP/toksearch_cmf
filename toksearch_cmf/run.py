@@ -25,12 +25,37 @@ import os
 import subprocess
 import uuid
 import warnings
-from typing import Optional, Sequence
+from typing import Any, Mapping, Optional, Sequence
 
 from toksearch.provenance.base import Provenance
 
 from .snapshot import snapshot_for_run
 from .inputs import UNVERSIONED, write_inputs_file
+
+
+#: Execution property keys that CmfRun fills from the RunContext and its own
+#: state. A caller's ``properties`` may not use them: silently overwriting
+#: ``source.hash`` or ``code.commit`` would corrupt the record that is the
+#: whole point of this package.
+RESERVED_PROPERTIES = frozenset({
+    "run",
+    "input_identity",
+    "source.kind",
+    "source.count",
+    "source.hash",
+    "backend.kind",
+    "device",
+    "parent_run",
+    "code.commit",
+    "code.dirty",
+    "code.script",
+    "ops",
+})
+
+#: Namespace under which _flatten records the backend's configuration.
+BACKEND_CONFIG_PREFIX = "backend.config."
+
+_SCALAR_TYPES = (str, int, float, bool)
 
 
 class CmfRun(Provenance):
@@ -50,7 +75,18 @@ class CmfRun(Provenance):
         archive_version: Version identifier of the raw archive state read.
             Left "unversioned" until the origin per-shot versioned store
             exists.
+        properties: Extra execution properties, recorded alongside the ones
+            derived from the RunContext. Use them to tag a run with something
+            only the caller knows -- a workflow's own run id, say, so that
+            executions from different runs of a multi-stage workflow can be
+            told apart in one mlmd store. Values must be scalars. Keys that
+            CmfRun itself records are rejected here, at construction, rather
+            than overwritten.
         strict: Raise instead of warning when a provenance hook fails.
+
+    Every execution also carries ``run``: this object's ``run_id``. A chained
+    pipeline records the previous run's id as ``parent_run``, and this is the
+    property that id refers to.
     """
 
     def __init__(
@@ -60,6 +96,7 @@ class CmfRun(Provenance):
         work_dir: str = ".",
         inputs: Optional[Sequence[str]] = None,
         archive_version: str = UNVERSIONED,
+        properties: Optional[Mapping[str, Any]] = None,
         strict: bool = False,
     ):
         self.pipeline_name = pipeline_name
@@ -67,6 +104,11 @@ class CmfRun(Provenance):
         self.work_dir = os.path.abspath(work_dir)
         self.declared_inputs = list(inputs or [])
         self.archive_version = archive_version
+        # Checked here, not in on_compute_start: safe_call turns a hook
+        # exception into a warning unless strict is set, so a bad property
+        # rejected there would be swallowed, no execution would be created,
+        # and log_dataset would then file the run under sys.argv[0].
+        self.properties = _check_properties(properties)
         self.strict = strict
         self.run_id = uuid.uuid4().hex
 
@@ -149,7 +191,11 @@ class CmfRun(Provenance):
         cmf.create_context(pipeline_stage=self.stage)
         cmf.create_execution(
             execution_type=self.stage,
-            custom_properties=self._flatten(ctx),
+            custom_properties={
+                "run": self.run_id,
+                **self._flatten(ctx),
+                **self.properties,
+            },
         )
 
         # The placeholder becomes a saved snapshot when the run read a
@@ -197,6 +243,22 @@ class CmfRun(Provenance):
     def finalize(self) -> None:
         if self._cmf is not None:
             self._cmf.finalize()
+
+
+def _check_properties(properties) -> dict:
+    checked = dict(properties or {})
+    for key, value in checked.items():
+        if key in RESERVED_PROPERTIES or key.startswith(BACKEND_CONFIG_PREFIX):
+            raise ValueError(
+                f"CmfRun property {key!r} is recorded by CmfRun itself and "
+                f"cannot be overridden. Choose another key."
+            )
+        if not isinstance(value, _SCALAR_TYPES):
+            raise TypeError(
+                f"CmfRun property {key!r} is {type(value).__name__}; CMF "
+                f"execution properties must be str, int, float or bool."
+            )
+    return checked
 
 
 def _dvc_path(path, root: str) -> str:
