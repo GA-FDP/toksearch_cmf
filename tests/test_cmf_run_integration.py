@@ -216,6 +216,40 @@ class TestCmfIntegration(unittest.TestCase):
                 any("record_outcomes" in n for n in _artifact_names(work))
             )
 
+    def test_caller_properties_land_on_the_execution(self):
+        # Issue #4. The mocked tests show the dict reaches create_execution;
+        # this shows cmflib actually stores a caller key and reads it back.
+        from cmflib.cmfquery import CmfQuery
+
+        with tempfile.TemporaryDirectory() as d:
+            work = _cmf_workspace(d)
+            self._run(work, properties={"run_id": "20260916T120757"})
+            executions = CmfQuery(os.path.join(work, "mlmd")).get_all_executions_in_pipeline("study")
+            self.assertEqual(len(executions), 1)
+            self.assertEqual(executions.iloc[0]["custom_properties_run_id"], "20260916T120757")
+
+    def test_two_identical_runs_are_told_apart_by_their_properties(self):
+        # The motivating failure: identical re-runs share artifacts by
+        # content hash, so paths cannot say which run produced what. The
+        # execution property can.
+        from cmflib.cmfquery import CmfQuery
+
+        with tempfile.TemporaryDirectory() as d:
+            work = _cmf_workspace(d)
+            self._run(work, properties={"run_id": "first"})
+            self._run(work, exist_ok=True, properties={"run_id": "second"})
+            executions = CmfQuery(os.path.join(work, "mlmd")).get_all_executions_in_pipeline("study")
+            self.assertEqual(sorted(executions["custom_properties_run_id"]), ["first", "second"])
+
+    def test_the_runs_own_id_is_recorded(self):
+        from cmflib.cmfquery import CmfQuery
+
+        with tempfile.TemporaryDirectory() as d:
+            work = _cmf_workspace(d)
+            run, _ = self._run(work)
+            executions = CmfQuery(os.path.join(work, "mlmd")).get_all_executions_in_pipeline("study")
+            self.assertEqual(executions.iloc[0]["custom_properties_run"], run.run_id)
+
 
 if __name__ == "__main__":
     unittest.main()

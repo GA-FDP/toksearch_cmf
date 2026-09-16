@@ -59,6 +59,23 @@ run description; `CmfRun` records it. Output directories declared with
 `Pipeline.write` are picked up automatically; use `run.output(path, ...)` for
 artifacts toksearch did not write itself.
 
+Every execution carries `run`, the `CmfRun`'s own `run_id`, which is what a
+chained pipeline's `parent_run` points at. To tag a run with something only
+the caller knows, pass `properties=`:
+
+```python
+run = CmfRun("vloop-study", stage="d3d-fetch", work_dir=".",
+             properties={"run_id": "20260916T120757"})
+```
+
+The keys land on the execution next to the ones derived from the run
+context, so a multi-stage workflow that records many runs into one mlmd store
+can select one run's executions by property rather than by artifact path.
+Paths are not a reliable handle: cmflib identifies artifacts by content hash,
+so a deterministic re-run that writes identical bytes is recorded against the
+earlier run's path. Values must be scalars, and keys `CmfRun` records itself
+are rejected at construction.
+
 ## Example
 
 [`examples/betan_ip_peaks_cmf.py`](examples/betan_ip_peaks_cmf.py) is a

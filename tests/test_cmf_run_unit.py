@@ -356,3 +356,108 @@ class TestDvcPathRelativization(unittest.TestCase):
             for call in run._cmf.log_dataset.call_args_list:
                 self.assertFalse(os.path.isabs(call.args[0]),
                                  f"absolute path reached cmflib: {call.args[0]}")
+
+
+class TestCallerProperties(unittest.TestCase):
+    """Issue #4: a caller can attach its own execution properties.
+
+    Validation lives in the constructor on purpose. toksearch's safe_call
+    turns any hook exception into a warning unless strict=True, so a bad
+    property rejected in on_compute_start would be swallowed, no execution
+    would be created, and cmflib's log_dataset would then file the run under
+    sys.argv[0]. Raising before the compute is the only unconditional path.
+    """
+
+    def _run(self, work_dir, **kwargs):
+        run = CmfRun("study", stage="assemble", work_dir=work_dir, **kwargs)
+        run._cmf = mock.MagicMock()
+        return run
+
+    def _execution_properties(self, run):
+        run.on_compute_start(_ctx())
+        _, kwargs = run._cmf.create_execution.call_args
+        return kwargs["custom_properties"]
+
+    def test_properties_default_to_empty(self):
+        with tempfile.TemporaryDirectory() as d:
+            _git_repo(d)
+            self.assertEqual(CmfRun("study", work_dir=d).properties, {})
+
+    def test_caller_properties_reach_the_execution(self):
+        with tempfile.TemporaryDirectory() as d:
+            _git_repo(d)
+            run = self._run(d, properties={"run_id": "20260916T120757"})
+            props = self._execution_properties(run)
+            self.assertEqual(props["run_id"], "20260916T120757")
+
+    def test_caller_properties_do_not_displace_the_run_context(self):
+        with tempfile.TemporaryDirectory() as d:
+            _git_repo(d)
+            run = self._run(d, properties={"run_id": "x"})
+            props = self._execution_properties(run)
+            self.assertIn("input_identity", props)
+            self.assertIn("code.commit", props)
+
+    def test_a_reserved_key_is_rejected_at_construction(self):
+        with tempfile.TemporaryDirectory() as d:
+            _git_repo(d)
+            with self.assertRaises(ValueError) as caught:
+                CmfRun("study", work_dir=d, properties={"source.kind": "mine"})
+            self.assertIn("source.kind", str(caught.exception))
+
+    def test_the_backend_config_namespace_is_reserved(self):
+        with tempfile.TemporaryDirectory() as d:
+            _git_repo(d)
+            with self.assertRaises(ValueError):
+                CmfRun("study", work_dir=d,
+                       properties={"backend.config.num_workers": 4})
+
+    def test_the_run_key_is_reserved(self):
+        with tempfile.TemporaryDirectory() as d:
+            _git_repo(d)
+            with self.assertRaises(ValueError):
+                CmfRun("study", work_dir=d, properties={"run": "mine"})
+
+    def test_a_non_scalar_value_is_rejected_at_construction(self):
+        with tempfile.TemporaryDirectory() as d:
+            _git_repo(d)
+            with self.assertRaises(TypeError) as caught:
+                CmfRun("study", work_dir=d, properties={"shots": [1, 2, 3]})
+            self.assertIn("shots", str(caught.exception))
+
+    def test_none_is_not_a_scalar(self):
+        with tempfile.TemporaryDirectory() as d:
+            _git_repo(d)
+            with self.assertRaises(TypeError):
+                CmfRun("study", work_dir=d, properties={"note": None})
+
+    def test_scalar_values_of_every_kind_are_accepted(self):
+        with tempfile.TemporaryDirectory() as d:
+            _git_repo(d)
+            run = self._run(d, properties={"s": "x", "i": 1, "f": 0.5, "b": True})
+            props = self._execution_properties(run)
+            self.assertEqual((props["s"], props["i"], props["f"], props["b"]),
+                             ("x", 1, 0.5, True))
+
+    def test_the_runs_own_id_is_an_execution_property(self):
+        # parent_run on a chained pipeline holds this id. Without this the
+        # id appears only in the inputs.json path, and two identical runs
+        # share one inputs.json artifact -- so the second run's id would be
+        # recorded nowhere at all.
+        with tempfile.TemporaryDirectory() as d:
+            _git_repo(d)
+            run = self._run(d)
+            props = self._execution_properties(run)
+            self.assertEqual(props["run"], run.run_id)
+
+    def test_reserved_keys_cover_everything_flatten_emits(self):
+        # The reserved set is what the constructor checks against; _flatten is
+        # what actually fills the execution. If they drift, a caller key can
+        # pass validation and then silently overwrite a RunContext key.
+        from toksearch_cmf.run import RESERVED_PROPERTIES, BACKEND_CONFIG_PREFIX
+
+        for key in CmfRun._flatten(_ctx()):
+            self.assertTrue(
+                key in RESERVED_PROPERTIES or key.startswith(BACKEND_CONFIG_PREFIX),
+                key,
+            )
