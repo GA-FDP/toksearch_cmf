@@ -192,7 +192,10 @@ from toksearch_cmf.snapshot import shards_for, snapshot_for_run
 
 
 def _snapshot_ctx(catalog="catalog_20260907T232802Z", shots=(165920, 165921),
-         signals=None):
+         signals=None, sql_snapshots=None):
+    store = {"catalog": catalog} if catalog else None
+    if store is not None and sql_snapshots:
+        store["sql_snapshots"] = sql_snapshots
     return _mock.Mock(
         source=_mock.Mock(to_dict=lambda: {"kind": "shotlist", "count": 2}),
         signals=signals if signals is not None else {
@@ -200,7 +203,7 @@ def _snapshot_ctx(catalog="catalog_20260907T232802Z", shots=(165920, 165921),
                    "fields": {"treename": "efit01"}},
         },
         device="d3d",
-        store={"catalog": catalog} if catalog else None,
+        store=store,
         shots=shots,
     )
 
@@ -277,6 +280,24 @@ class TestTheSnapshotReachesInputsJson(_unittest.TestCase):
                          side_effect=RuntimeError("origin down")):
             self.assertEqual(snapshot_for_run(_snapshot_ctx(), store_root="/r"),
                              UNVERSIONED)
+
+
+class TestTheSqlSnapshotReachesBuildSnapshot(_unittest.TestCase):
+    """A run that read d3drdb settled one snapshot of it; the saved snapshot
+    must name it or the SQL half of the run is unreproducible."""
+
+    def _build_kwargs(self, ctx):
+        with _mock.patch("toksearch_cmf.snapshot.build_snapshot") as build:
+            snapshot_for_run(ctx, store_root="/r")
+        return build.call_args.kwargs
+
+    def test_the_settled_sql_snapshot_is_passed_through(self):
+        ctx = _snapshot_ctx(sql_snapshots={"d3drdb": "d3drdb_X"})
+        self.assertEqual(self._build_kwargs(ctx)["sql_snapshots"],
+                         {"d3drdb": "d3drdb_X"})
+
+    def test_a_run_with_no_sql_snapshots_passes_none(self):
+        self.assertIsNone(self._build_kwargs(_snapshot_ctx())["sql_snapshots"])
 
 
 class TestItDegradesRatherThanCrashes(_unittest.TestCase):

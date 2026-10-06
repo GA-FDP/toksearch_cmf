@@ -110,6 +110,7 @@ def snapshot_for_run(ctx, store_root=None):
 
     try:
         return build_snapshot(root, shots=list(shots),
-                              shards=shards_for(ctx), catalog=catalog)
+                              shards=shards_for(ctx), catalog=catalog,
+                              sql_snapshots=store.get("sql_snapshots") or None)
     except Exception:  # noqa: BLE001 - see the docstring
         return UNVERSIONED
