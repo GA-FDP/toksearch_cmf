@@ -30,7 +30,7 @@ build:
   # `python_abi 3.12.* *_cp312`. That is uninstallable in the fdp-core
   # environment, which pins python 3.11, so this package could not join the
   # metapackage at all. noarch gives one build that works on every python in
-  # the `python >=3.10,<3.13` run constraint below.
+  # the `python` run constraint below.
   noarch: python
   script:
     - ${{ PYTHON }} -m pip install . --no-deps --no-build-isolation -vv
@@ -42,14 +42,14 @@ requirements:
     # (3.14 at the time of writing), and the published toksearch conda builds
     # (numpy >=1.20,<2) only exist through python 3.12 -- a package built
     # against a newer interpreter can never install alongside a real
-    # toksearch release. cmflib caps at <3.14 too, but <3.13 is the binding
-    # constraint. ml-metadata 1.21.0 covers 3.10-3.13.
+    # toksearch release.
     - python >=3.10,<3.13
     - setuptools
     - pip
     - versioneer
   run:
-    - python >=3.10,<3.13
+    # cmflib caps at <3.14: ml-metadata 1.21.0 has no cp314 wheel.
+    - python >=3.10,<3.14
     # FLOOR IS LOAD-BEARING: toksearch 2.11.0 is the first release carrying
     # `toksearch.provenance` -- RunContext, the Provenance ABC, Signal.spec()
     # and `provenance=` on compute_*. That module is the entire contract this
